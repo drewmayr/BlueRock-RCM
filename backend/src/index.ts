@@ -11,7 +11,7 @@ async function main() {
   console.log("[db] connected");
 
   const server = app.listen(env.port, () => {
-    console.log(`[server] BlueRock RCM API listening on port ${env.port} (${env.nodeEnv})`);
+    console.log(`[server] BlueRock Financial API listening on port ${env.port} (${env.nodeEnv})`);
   });
 
   startScheduler();

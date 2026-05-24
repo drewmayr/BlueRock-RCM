@@ -7,7 +7,7 @@ import { ToastProvider } from "@/lib/toast";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "BlueRock RCM",
+  title: "BlueRock Financial",
   description: "Relationship automation CRM for life insurance agencies",
 };
 

@@ -144,17 +144,17 @@ function inviteLink(token: string) {
 }
 
 async function sendInviteEmail(agencyId: string, agencyName: string, inviterName: string, to: string, role: string, link: string) {
-  const subject = `You're invited to join ${agencyName} on BlueRock RCM`;
+  const subject = `You're invited to join ${agencyName} on BlueRock Financial`;
   const body = `Hi,
 
-${inviterName} has invited you to join ${agencyName} on BlueRock RCM as a ${role.toLowerCase()}.
+${inviterName} has invited you to join ${agencyName} on BlueRock Financial as a ${role.toLowerCase()}.
 
 Accept your invitation and set your password here:
 ${link}
 
 This link expires in 7 days.
 
-— BlueRock RCM`;
+— BlueRock Financial`;
   return sendTransactionalEmail(agencyId, to, subject, body);
 }
 

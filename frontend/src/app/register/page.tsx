@@ -39,7 +39,7 @@ export default function RegisterPage() {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6 py-12">
       <div className="w-full max-w-md">
         <div className="mb-8 flex items-center justify-center gap-2 text-xl font-bold text-brand-700">
-          <ShieldCheck className="h-7 w-7" /> BlueRock RCM
+          <ShieldCheck className="h-7 w-7" /> BlueRock Financial
         </div>
         <div className="card p-8">
           <h1 className="text-2xl font-bold text-slate-900">Create your agency</h1>

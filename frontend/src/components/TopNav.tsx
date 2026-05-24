@@ -57,7 +57,7 @@ export default function TopNav() {
       <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-4 px-4">
         <Link href="/dashboard" className="flex shrink-0 items-center gap-2 font-bold text-brand-700">
           <ShieldCheck className="h-6 w-6" />
-          <span className="hidden sm:inline">BlueRock RCM</span>
+          <span className="hidden sm:inline">BlueRock Financial</span>
         </Link>
 
         {/* Desktop nav */}

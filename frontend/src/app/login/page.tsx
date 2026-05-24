@@ -38,7 +38,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen">
       <div className="hidden w-1/2 flex-col justify-between bg-brand-700 p-12 text-white lg:flex">
         <div className="flex items-center gap-2 text-xl font-bold">
-          <ShieldCheck className="h-7 w-7" /> BlueRock RCM
+          <ShieldCheck className="h-7 w-7" /> BlueRock Financial
         </div>
         <div>
           <h2 className="text-3xl font-bold leading-tight">
@@ -56,7 +56,7 @@ export default function LoginPage() {
         <div className="w-full max-w-sm">
           <div className="mb-8 lg:hidden">
             <div className="flex items-center gap-2 text-xl font-bold text-brand-700">
-              <ShieldCheck className="h-7 w-7" /> BlueRock RCM
+              <ShieldCheck className="h-7 w-7" /> BlueRock Financial
             </div>
           </div>
           <h1 className="text-2xl font-bold text-slate-900">Welcome back</h1>

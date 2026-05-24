@@ -44,7 +44,7 @@ export const env = {
   resend: {
     apiKey: process.env.RESEND_API_KEY ?? "",
     fromAddress: process.env.EMAIL_FROM_ADDRESS ?? "",
-    fromName: process.env.EMAIL_FROM_NAME ?? "BlueRock RCM",
+    fromName: process.env.EMAIL_FROM_NAME ?? "BlueRock Financial",
   },
 
   scheduler: {

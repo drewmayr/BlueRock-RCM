@@ -43,7 +43,7 @@ export function createApp() {
   app.use(express.json({ limit: "1mb" }));
   if (!env.isProd) app.use(morgan("dev"));
 
-  app.get("/", (_req, res) => res.json({ name: "BlueRock RCM API", status: "ok" }));
+  app.get("/", (_req, res) => res.json({ name: "BlueRock Financial API", status: "ok" }));
   app.get("/health", (_req, res) => res.json({ status: "ok", time: new Date().toISOString() }));
 
   const authLimiter = rateLimit({

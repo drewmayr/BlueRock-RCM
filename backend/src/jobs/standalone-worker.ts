@@ -3,7 +3,7 @@
 import { startScheduler } from "./scheduler";
 import { prisma } from "../lib/prisma";
 
-console.log("[worker] BlueRock RCM automation worker starting");
+console.log("[worker] BlueRock Financial automation worker starting");
 startScheduler();
 
 async function shutdown() {

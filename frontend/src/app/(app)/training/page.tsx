@@ -36,7 +36,7 @@ function Steps({ items }: { items: string[] }) {
 export default function TrainingPage() {
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Training & Getting Started" subtitle="A quick guide to running your agency in BlueRock RCM." />
+      <PageHeader title="Training & Getting Started" subtitle="A quick guide to running your agency in BlueRock Financial." />
 
       <Card className="mb-6 bg-brand-700 p-6 text-white">
         <div className="flex items-center gap-3">
@@ -112,7 +112,7 @@ export default function TrainingPage() {
         </Section>
       </div>
 
-      <p className="mt-8 text-center text-xs text-slate-400">BlueRock RCM — relationship automation for life insurance agencies.</p>
+      <p className="mt-8 text-center text-xs text-slate-400">BlueRock Financial — relationship automation for life insurance agencies.</p>
     </div>
   );
 }
