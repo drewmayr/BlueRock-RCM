@@ -22,6 +22,7 @@ import {
   Menu,
   X,
   Bell,
+  GraduationCap,
 } from "lucide-react";
 
 const NAV = [
@@ -114,6 +115,13 @@ export default function TopNav() {
                       {user?.role}
                     </span>
                   </div>
+                  <Link
+                    href="/training"
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    <GraduationCap className="h-4 w-4" /> Training & Help
+                  </Link>
                   <Link
                     href="/settings"
                     onClick={() => setMenuOpen(false)}
