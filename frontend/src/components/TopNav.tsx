@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { initials } from "@/lib/format";
+import { api } from "@/lib/api";
 import {
   LayoutDashboard,
-  UserPlus,
-  Users,
+  Contact2,
   FileText,
   Share2,
   TrendingUp,
@@ -21,12 +21,12 @@ import {
   LogOut,
   Menu,
   X,
+  Bell,
 } from "lucide-react";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/recruiting", label: "Recruiting", icon: UserPlus },
-  { href: "/clients", label: "Clients", icon: Users },
+  { href: "/leads", label: "Leads", icon: Contact2 },
   { href: "/policies", label: "Policies", icon: FileText },
   { href: "/referrals", label: "Referrals", icon: Share2 },
   { href: "/cross-sells", label: "Cross-Sell", icon: TrendingUp },
@@ -40,6 +40,14 @@ export default function TopNav() {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    const fetchUnread = () => api.get<{ count: number }>("/api/notifications/unread-count").then((d) => setUnread(d.count)).catch(() => {});
+    fetchUnread();
+    const t = setInterval(fetchUnread, 60000);
+    return () => clearInterval(t);
+  }, []);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
@@ -68,6 +76,16 @@ export default function TopNav() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Notifications */}
+          <Link href="/notifications" className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100" title="Notifications">
+            <Bell className="h-5 w-5" />
+            {unread > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                {unread > 9 ? "9+" : unread}
+              </span>
+            )}
+          </Link>
+
           {/* User menu */}
           <div className="relative">
             <button

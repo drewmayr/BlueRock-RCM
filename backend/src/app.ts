@@ -20,6 +20,8 @@ import messageRoutes from "./routes/messages.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
 import metaRoutes from "./routes/meta.routes";
 import invitationRoutes from "./routes/invitations.routes";
+import leadRoutes from "./routes/leads.routes";
+import notificationRoutes from "./routes/notifications.routes";
 
 export function createApp() {
   const app = express();
@@ -66,6 +68,8 @@ export function createApp() {
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/meta", metaRoutes);
   app.use("/api/invitations", invitationRoutes);
+  app.use("/api/leads", leadRoutes);
+  app.use("/api/notifications", notificationRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

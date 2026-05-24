@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -13,7 +13,7 @@ import { fmtDate, fmtDateTime, fmtRelative, fmtMoney, humanize, initials } from 
 import type { ContactDetail, Sequence, Policy } from "@/lib/types";
 import {
   ArrowLeft, Pencil, Phone, Mail, MapPin, Cake, Heart, Users as UsersIcon, Briefcase,
-  Trash2, Send, Workflow, Plus, CheckCircle2, MessageSquarePlus, CalendarPlus, StickyNote,
+  Trash2, Send, Workflow, Plus, CheckCircle2, MessageSquarePlus, CalendarPlus, StickyNote, UserCheck,
 } from "lucide-react";
 
 const TABS = ["Timeline", "Policies", "Life Events", "Cross-Sell", "Tasks", "Messages"] as const;
@@ -31,6 +31,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const [editPolicy, setEditPolicy] = useState<Policy | null>(null);
   const [msgOpen, setMsgOpen] = useState(false);
   const [enrollOpen, setEnrollOpen] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
   const [eventOpen, setEventOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
 
@@ -89,6 +90,10 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
               <Button variant="secondary" onClick={() => setMsgOpen(true)}><Send className="h-4 w-4" /> Message</Button>
               <Button variant="secondary" onClick={() => setEnrollOpen(true)}><Workflow className="h-4 w-4" /> Enroll</Button>
             </div>
+            {c.type === "RECRUIT" && !c.convertedUserId && (
+              <Button className="mt-2 w-full" onClick={() => setConvertOpen(true)}><UserCheck className="h-4 w-4" /> Convert to Agent</Button>
+            )}
+            {c.convertedUserId && <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-center text-xs font-medium text-emerald-700">✓ Active agent</p>}
             <button onClick={remove} className="mt-3 flex w-full items-center justify-center gap-1 text-xs text-red-500 hover:text-red-700">
               <Trash2 className="h-3.5 w-3.5" /> Delete contact
             </button>
@@ -240,6 +245,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       <PolicyForm open={policyOpen} onClose={() => setPolicyOpen(false)} fixedContactId={c.id} policy={editPolicy} onSaved={reload} />
       <SendMessageModal open={msgOpen} onClose={() => setMsgOpen(false)} contactId={c.id} onSent={reload} />
       <EnrollModal open={enrollOpen} onClose={() => setEnrollOpen(false)} contactId={c.id} onDone={reload} />
+      <ConvertModal open={convertOpen} onClose={() => setConvertOpen(false)} contactId={c.id} defaultEmail={c.email} onDone={reload} />
       <EventModal open={eventOpen} onClose={() => setEventOpen(false)} contactId={c.id} onSaved={reload} />
       <NoteModal open={noteOpen} onClose={() => setNoteOpen(false)} contactId={c.id} onSaved={reload} />
     </div>
@@ -367,6 +373,54 @@ function NoteModal({ open, onClose, contactId, onSaved }: { open: boolean; onClo
         <Field label="Note"><Textarea rows={4} value={note} onChange={(e) => setNote(e.target.value)} required /></Field>
         <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" loading={busy}>Save note</Button></div>
       </form>
+    </Modal>
+  );
+}
+
+function ConvertModal({ open, onClose, contactId, defaultEmail, onDone }: { open: boolean; onClose: () => void; contactId: string; defaultEmail: string | null; onDone: () => void }) {
+  const meta = useMeta();
+  const toast = useToast();
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("AGENT");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<{ email: string; tempPassword?: string } | null>(null);
+
+  useEffect(() => { if (open) { setEmail(defaultEmail ?? ""); setRole("AGENT"); setError(""); setResult(null); } }, [open, defaultEmail]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setBusy(true); setError("");
+    try {
+      const res = await api.post<{ user: { email: string }; tempPassword?: string }>(`/api/contacts/${contactId}/convert-to-agent`, { email, role });
+      setResult({ email: res.user.email, tempPassword: res.tempPassword });
+      toast("Recruit converted to agent");
+      onDone();
+    } catch (err) { setError(err instanceof ApiError ? err.message : "Conversion failed"); } finally { setBusy(false); }
+  };
+
+  const roleOptions = (meta?.roles ?? ["AGENT", "MANAGER", "RECRUITER", "ASSISTANT", "SUPPORT", "TRAINER"]).filter((r) => r !== "OWNER");
+
+  return (
+    <Modal open={open} onClose={onClose} title="Convert to Agent">
+      {result ? (
+        <div className="space-y-4">
+          <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">✓ Agent account created for <b>{result.email}</b>. The recruit record is now linked as an active agent (no duplicate).</div>
+          {result.tempPassword && (
+            <Field label="Temporary password" hint="Share this securely — they can change it after signing in.">
+              <Input readOnly value={result.tempPassword} onFocus={(e) => e.currentTarget.select()} />
+            </Field>
+          )}
+          <div className="flex justify-end"><Button onClick={onClose}>Done</Button></div>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="space-y-4">
+          <p className="text-sm text-slate-500">Creates a team-member account from this recruit and marks them an active agent.</p>
+          <Field label="Agent email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
+          <Field label="Role"><Select value={role} onChange={(e) => setRole(e.target.value)}>{roleOptions.map((r) => <option key={r} value={r}>{humanize(r)}</option>)}</Select></Field>
+          {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" loading={busy}><UserCheck className="h-4 w-4" /> Convert</Button></div>
+        </form>
+      )}
     </Modal>
   );
 }

@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { logActivity } from "../lib/activity";
 import { renderTemplate, TemplateContext } from "./templating";
 import { dispatchMessage } from "./messaging";
+import { RECRUIT_TERMINAL_STAGES } from "../shared/pipeline";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -83,49 +84,108 @@ async function buildContext(contactId: string): Promise<TemplateContext & { cont
 }
 
 /** Execute a single sequence step for an enrollment (create message or task). */
+interface StepLike {
+  channel: string;
+  subject: string | null;
+  body: string;
+  taskTitle: string | null;
+  actionConfig?: unknown;
+}
+
 async function runStep(
   enrollment: { id: string; agencyId: string; contactId: string },
-  step: { channel: string; subject: string | null; body: string; taskTitle: string | null }
+  step: StepLike
 ): Promise<void> {
   const ctx = await buildContext(enrollment.contactId);
   const contact = ctx.contact!;
+  const ownerId = (await prisma.contact.findUnique({
+    where: { id: enrollment.contactId },
+    select: { ownerId: true },
+  }))?.ownerId ?? null;
+  const cfg = (step.actionConfig as Record<string, unknown> | null) ?? {};
 
-  if (step.channel === "TASK") {
-    const owner = await prisma.contact.findUnique({
-      where: { id: enrollment.contactId },
-      select: { ownerId: true },
-    });
-    await prisma.task.create({
-      data: {
+  switch (step.channel) {
+    case "TASK": {
+      await prisma.task.create({
+        data: {
+          agencyId: enrollment.agencyId,
+          contactId: enrollment.contactId,
+          assigneeId: ownerId,
+          title: renderTemplate(step.taskTitle || step.subject || "Automated follow-up", ctx),
+          description: renderTemplate(step.body, ctx),
+          type: "FOLLOW_UP",
+          dueDate: new Date(),
+          autoCreated: true,
+        },
+      });
+      return;
+    }
+    case "NOTE": {
+      await logActivity({
         agencyId: enrollment.agencyId,
         contactId: enrollment.contactId,
-        assigneeId: owner?.ownerId ?? null,
-        title: renderTemplate(step.taskTitle || step.subject || "Automated follow-up", ctx),
-        description: renderTemplate(step.body, ctx),
-        type: "FOLLOW_UP",
-        dueDate: new Date(),
-        autoCreated: true,
-      },
-    });
-    return;
+        type: "NOTE_ADDED",
+        description: renderTemplate(step.body || step.subject || "Automated note", ctx),
+        metadata: { auto: true },
+      });
+      return;
+    }
+    case "STATUS": {
+      const status = (cfg.status as string) || "";
+      if (status) {
+        await prisma.contact.update({ where: { id: enrollment.contactId }, data: { status } });
+        await logActivity({
+          agencyId: enrollment.agencyId,
+          contactId: enrollment.contactId,
+          type: "STATUS_CHANGED",
+          description: `Automation set status to ${status}`,
+        });
+      }
+      return;
+    }
+    case "TAG": {
+      const tags = Array.isArray(cfg.tags) ? (cfg.tags as string[]) : String(cfg.tags ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+      if (tags.length) {
+        const existing = (await prisma.contact.findUnique({ where: { id: enrollment.contactId }, select: { tags: true } }))?.tags ?? [];
+        const merged = Array.from(new Set([...existing, ...tags]));
+        await prisma.contact.update({ where: { id: enrollment.contactId }, data: { tags: merged } });
+      }
+      return;
+    }
+    case "NOTIFY": {
+      await prisma.notification.create({
+        data: {
+          agencyId: enrollment.agencyId,
+          userId: ownerId,
+          contactId: enrollment.contactId,
+          category: "AUTOMATION",
+          type: "WORKFLOW",
+          title: renderTemplate(step.subject || "Automation update", ctx),
+          body: renderTemplate(step.body || "", ctx),
+          link: `/contacts/${enrollment.contactId}`,
+        },
+      });
+      return;
+    }
+    default: {
+      // SMS or EMAIL — create an outbox message and attempt delivery.
+      const toAddress = step.channel === "SMS" ? contact.phone : contact.email;
+      const message = await prisma.message.create({
+        data: {
+          agencyId: enrollment.agencyId,
+          contactId: enrollment.contactId,
+          enrollmentId: enrollment.id,
+          channel: step.channel,
+          status: "SCHEDULED",
+          toAddress: toAddress ?? null,
+          subject: step.channel === "EMAIL" ? renderTemplate(step.subject ?? "", ctx) : null,
+          body: renderTemplate(step.body, ctx),
+          scheduledAt: new Date(),
+        },
+      });
+      await dispatchMessage(message.id);
+    }
   }
-
-  const toAddress = step.channel === "SMS" ? contact.phone : contact.email;
-  const message = await prisma.message.create({
-    data: {
-      agencyId: enrollment.agencyId,
-      contactId: enrollment.contactId,
-      enrollmentId: enrollment.id,
-      channel: step.channel,
-      status: "SCHEDULED",
-      toAddress: toAddress ?? null,
-      subject: step.channel === "EMAIL" ? renderTemplate(step.subject ?? "", ctx) : null,
-      body: renderTemplate(step.body, ctx),
-      scheduledAt: new Date(),
-    },
-  });
-  // Attempt immediate delivery (parks as QUEUED if no provider configured yet).
-  await dispatchMessage(message.id);
 }
 
 /**
@@ -208,7 +268,7 @@ export async function processAgedLeads(agencyId?: string): Promise<number> {
         agencyId: agency.id,
         type: "RECRUIT",
         doNotContact: false,
-        status: { notIn: ["HIRED", "INACTIVE", "AGED"] },
+        status: { notIn: [...RECRUIT_TERMINAL_STAGES] },
         OR: [{ lastContactedAt: { lte: cutoff } }, { lastContactedAt: null, createdAt: { lte: cutoff } }],
       },
     });
@@ -226,10 +286,47 @@ export async function processAgedLeads(agencyId?: string): Promise<number> {
       for (const seq of sequences) {
         await enrollContact(seq.id, c.id);
       }
+      await prisma.notification.create({
+        data: {
+          agencyId: agency.id,
+          userId: c.ownerId,
+          contactId: c.id,
+          category: "REMINDER",
+          type: "AGED_LEAD",
+          title: `Aged recruiting lead: ${c.firstName} ${c.lastName}`,
+          body: "No contact in a while — placed into the revival workflow.",
+          link: `/contacts/${c.id}`,
+        },
+      });
       count++;
     }
   }
   return count;
+}
+
+/**
+ * Tag leads by inactivity tier (30/60/90+ days) so the UI and segments stay current.
+ * Returns the number of leads whose tier tag changed.
+ */
+export async function applyAgingTiers(agencyId?: string): Promise<number> {
+  const TIER_TAGS = ["aging-30", "aging-60", "aging-90"];
+  const contacts = await prisma.contact.findMany({
+    where: { doNotContact: false, ...(agencyId ? { agencyId } : {}) },
+    select: { id: true, tags: true, lastContactedAt: true, createdAt: true },
+  });
+  let changed = 0;
+  for (const c of contacts) {
+    const since = c.lastContactedAt ?? c.createdAt;
+    const days = Math.floor((Date.now() - new Date(since).getTime()) / DAY_MS);
+    const tier = days >= 90 ? "aging-90" : days >= 60 ? "aging-60" : days >= 30 ? "aging-30" : null;
+    const kept = c.tags.filter((t) => !TIER_TAGS.includes(t));
+    const next = tier ? [...kept, tier] : kept;
+    if (next.length !== c.tags.length || (tier && !c.tags.includes(tier))) {
+      await prisma.contact.update({ where: { id: c.id }, data: { tags: next } });
+      changed++;
+    }
+  }
+  return changed;
 }
 
 function monthDayMatches(date: Date | null, target: Date): boolean {
@@ -375,5 +472,6 @@ export async function runAutomationCycle(agencyId?: string): Promise<Record<stri
   const crossSells = await detectCrossSells(agencyId);
   const stepped = await processDueEnrollments();
   const messages = await processScheduledMessages();
-  return { aged, birthdays, anniversaries, renewals, crossSells, stepped, messages };
+  const aging = await applyAgingTiers(agencyId);
+  return { aged, birthdays, anniversaries, renewals, crossSells, stepped, messages, aging };
 }

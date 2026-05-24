@@ -8,16 +8,30 @@ import { useToast } from "@/lib/toast";
 import { Button, Card, Field, Input, Select, Textarea, Spinner, Badge } from "@/components/ui";
 import { humanize } from "@/lib/format";
 import type { Sequence, SequenceStep } from "@/lib/types";
-import { Plus, Trash2, ArrowLeft, Mail, MessageSquare, CheckSquare, GripVertical } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Mail, MessageSquare, CheckSquare, GripVertical, StickyNote, GitBranch, Tag, Bell } from "lucide-react";
 
 const CHANNEL_ICON: Record<string, React.ReactNode> = {
   SMS: <MessageSquare className="h-4 w-4" />,
   EMAIL: <Mail className="h-4 w-4" />,
   TASK: <CheckSquare className="h-4 w-4" />,
+  NOTE: <StickyNote className="h-4 w-4" />,
+  STATUS: <GitBranch className="h-4 w-4" />,
+  TAG: <Tag className="h-4 w-4" />,
+  NOTIFY: <Bell className="h-4 w-4" />,
+};
+
+const ACTION_LABEL: Record<string, string> = {
+  SMS: "Send SMS",
+  EMAIL: "Send Email",
+  TASK: "Create Task",
+  NOTE: "Add Note",
+  STATUS: "Update Status",
+  TAG: "Add Tags",
+  NOTIFY: "Notify Assigned User",
 };
 
 function emptyStep(order: number): SequenceStep {
-  return { order, channel: "SMS", delayDays: order === 0 ? 0 : 2, delayHours: 0, subject: "", body: "", taskTitle: "" };
+  return { order, channel: "SMS", delayDays: order === 0 ? 0 : 2, delayHours: 0, subject: "", body: "", taskTitle: "", actionConfig: {} };
 }
 
 export default function SequenceEditor({ id }: { id?: string }) {
@@ -66,7 +80,15 @@ export default function SequenceEditor({ id }: { id?: string }) {
   const save = async () => {
     setError("");
     if (!name.trim()) return setError("Name is required");
-    if (steps.some((s) => !s.body.trim())) return setError("Every step needs a message body");
+    for (const s of steps) {
+      const cfg = (s.actionConfig ?? {}) as { status?: string; tags?: string };
+      if (["SMS", "EMAIL", "NOTE", "NOTIFY"].includes(s.channel) && !s.body.trim())
+        return setError(`A ${s.channel.toLowerCase()} step needs a message`);
+      if (s.channel === "TASK" && !s.taskTitle?.trim() && !s.body.trim())
+        return setError("A task step needs a title");
+      if (s.channel === "STATUS" && !cfg.status) return setError("A status step needs a target stage");
+      if (s.channel === "TAG" && !String(cfg.tags ?? "").trim()) return setError("A tag step needs at least one tag");
+    }
     setBusy(true);
     let triggerConfig: Record<string, unknown> | undefined;
     if (needsDaysBefore) triggerConfig = { daysBefore: parseInt(daysBefore || "0", 10) };
@@ -77,7 +99,8 @@ export default function SequenceEditor({ id }: { id?: string }) {
       steps: steps.map((s, i) => ({
         order: i, channel: s.channel,
         delayDays: Number(s.delayDays) || 0, delayHours: Number(s.delayHours) || 0,
-        subject: s.subject || null, body: s.body, taskTitle: s.taskTitle || null,
+        subject: s.subject || null, body: s.body || "", taskTitle: s.taskTitle || null,
+        actionConfig: s.actionConfig ?? {},
       })),
     };
     try {
@@ -151,25 +174,43 @@ export default function SequenceEditor({ id }: { id?: string }) {
               {steps.length > 1 && <button onClick={() => removeStep(i)} className="text-slate-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>}
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <Field label="Channel">
+              <Field label="Action">
                 <Select value={s.channel} onChange={(e) => updateStep(i, { channel: e.target.value as SequenceStep["channel"] })}>
-                  {meta?.channels.map((c) => <option key={c} value={c}>{humanize(c)}</option>)}
+                  {(meta?.actionTypes ?? ["SMS", "EMAIL", "TASK", "NOTE", "STATUS", "TAG", "NOTIFY"]).map((c) => <option key={c} value={c}>{ACTION_LABEL[c] ?? humanize(c)}</option>)}
                 </Select>
               </Field>
               <Field label="Delay (days)"><Input type="number" min={0} value={s.delayDays} onChange={(e) => updateStep(i, { delayDays: Number(e.target.value) })} /></Field>
               <Field label="Delay (hours)"><Input type="number" min={0} max={23} value={s.delayHours} onChange={(e) => updateStep(i, { delayHours: Number(e.target.value) })} /></Field>
             </div>
-            {s.channel === "EMAIL" && (
-              <div className="mt-3"><Field label="Subject"><Input value={s.subject ?? ""} onChange={(e) => updateStep(i, { subject: e.target.value })} placeholder="Hi {{firstName}}…" /></Field></div>
+
+            {(s.channel === "EMAIL" || s.channel === "NOTIFY") && (
+              <div className="mt-3"><Field label={s.channel === "NOTIFY" ? "Notification title" : "Subject"}><Input value={s.subject ?? ""} onChange={(e) => updateStep(i, { subject: e.target.value })} placeholder={s.channel === "NOTIFY" ? "Follow up with {{firstName}}" : "Hi {{firstName}}…"} /></Field></div>
             )}
             {s.channel === "TASK" && (
               <div className="mt-3"><Field label="Task title"><Input value={s.taskTitle ?? ""} onChange={(e) => updateStep(i, { taskTitle: e.target.value })} placeholder="Call {{fullName}}" /></Field></div>
             )}
-            <div className="mt-3">
-              <Field label={s.channel === "TASK" ? "Task details" : "Message body"}>
-                <Textarea rows={3} value={s.body} onChange={(e) => updateStep(i, { body: e.target.value })} placeholder="Hi {{firstName}}, this is {{agentName}} with {{agencyName}}…" />
-              </Field>
-            </div>
+
+            {s.channel === "STATUS" && (
+              <div className="mt-3"><Field label="Set stage to">
+                <Select value={(s.actionConfig as { status?: string })?.status ?? ""} onChange={(e) => updateStep(i, { actionConfig: { ...(s.actionConfig ?? {}), status: e.target.value } })}>
+                  <option value="">Select stage…</option>
+                  {stages?.map((st) => <option key={st} value={st}>{humanize(st)}</option>)}
+                </Select>
+              </Field></div>
+            )}
+            {s.channel === "TAG" && (
+              <div className="mt-3"><Field label="Add tags" hint="Comma-separated">
+                <Input value={(s.actionConfig as { tags?: string })?.tags ?? ""} onChange={(e) => updateStep(i, { actionConfig: { ...(s.actionConfig ?? {}), tags: e.target.value } })} placeholder="vip, reengaged" />
+              </Field></div>
+            )}
+
+            {["SMS", "EMAIL", "TASK", "NOTE", "NOTIFY"].includes(s.channel) && (
+              <div className="mt-3">
+                <Field label={s.channel === "TASK" ? "Task details" : s.channel === "NOTE" ? "Note" : s.channel === "NOTIFY" ? "Message to agent" : "Message body"}>
+                  <Textarea rows={3} value={s.body} onChange={(e) => updateStep(i, { body: e.target.value })} placeholder="Hi {{firstName}}, this is {{agentName}} with {{agencyName}}…" />
+                </Field>
+              </div>
+            )}
           </Card>
         ))}
       </div>

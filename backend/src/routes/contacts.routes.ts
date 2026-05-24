@@ -1,10 +1,12 @@
 import { Router } from "express";
 import { z } from "zod";
+import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { asyncHandler } from "../lib/asyncHandler";
-import { badRequest, notFound } from "../lib/errors";
-import { requireAuth } from "../middleware/auth";
+import { badRequest, notFound, conflict } from "../lib/errors";
+import { requireAuth, requireRole } from "../middleware/auth";
+import { hashPassword } from "../lib/password";
 import { logActivity } from "../lib/activity";
 import { isValidStatus, defaultStatusFor } from "../shared/pipeline";
 import { triggerSequencesForContact, enrollContact } from "../services/automation";
@@ -50,13 +52,13 @@ const baseContact = {
 };
 
 const createSchema = z.object({
-  type: z.enum(["RECRUIT", "CLIENT"]),
+  type: z.enum(["RECRUIT", "CLIENT", "REFERRAL"]),
   status: z.string().optional(),
   ...baseContact,
 });
 
 const updateSchema = z.object({
-  type: z.enum(["RECRUIT", "CLIENT"]).optional(),
+  type: z.enum(["RECRUIT", "CLIENT", "REFERRAL"]).optional(),
   status: z.string().optional(),
   ...Object.fromEntries(Object.entries(baseContact).map(([k, v]) => [k, (v as z.ZodTypeAny).optional()])),
 }) as z.ZodType<Record<string, unknown>>;
@@ -71,7 +73,7 @@ router.get(
     const pageSize = Math.min(100, Math.max(1, parseInt((req.query.pageSize as string) ?? "25", 10)));
 
     const where: Prisma.ContactWhereInput = { agencyId };
-    if (type === "RECRUIT" || type === "CLIENT") where.type = type;
+    if (type === "RECRUIT" || type === "CLIENT" || type === "REFERRAL") where.type = type;
     if (status) where.status = status;
     if (owner) where.ownerId = owner;
     if (aged === "true") where.isAged = true;
@@ -177,7 +179,7 @@ router.patch(
     if (!existing) throw notFound("Contact not found");
 
     const data = updateSchema.parse(req.body);
-    const type = (data.type as "RECRUIT" | "CLIENT") ?? existing.type;
+    const type = (data.type as "RECRUIT" | "CLIENT" | "REFERRAL") ?? existing.type;
     if (data.status && !isValidStatus(type, data.status as string)) {
       throw badRequest(`Invalid status "${data.status}" for ${type}`);
     }
@@ -273,6 +275,69 @@ router.post(
     const result = await enrollContact(sequenceId, contact.id, { reArm: true });
     if (!result.enrolled) throw badRequest(result.reason ?? "Could not enroll");
     res.status(201).json({ ok: true });
+  })
+);
+
+// Convert a recruiting lead into an active agent (creates a team-member account,
+// links it to the recruit record — no duplicate — and marks the recruit ACTIVE_AGENT).
+const convertSchema = z.object({
+  email: z.string().email().optional(),
+  role: z.enum(["AGENT", "MANAGER", "RECRUITER", "ASSISTANT", "SUPPORT", "TRAINER"]).optional(),
+  password: z.string().min(8).max(200).optional(),
+});
+
+router.post(
+  "/:id/convert-to-agent",
+  requireRole("OWNER", "MANAGER"),
+  asyncHandler(async (req, res) => {
+    const agencyId = req.auth!.agencyId;
+    const recruit = await prisma.contact.findFirst({ where: { id: req.params.id, agencyId } });
+    if (!recruit) throw notFound("Recruit not found");
+    if (recruit.type !== "RECRUIT") throw badRequest("Only recruiting leads can be converted to agents");
+    if (recruit.convertedUserId) throw badRequest("This recruit is already an agent");
+
+    const data = convertSchema.parse(req.body);
+    const email = (data.email ?? recruit.email ?? "").toLowerCase().trim();
+    if (!email) throw badRequest("An email is required to create the agent account");
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) throw conflict("A user with that email already exists");
+
+    const tempPassword = data.password ?? crypto.randomBytes(6).toString("base64url");
+    const user = await prisma.user.create({
+      data: {
+        agencyId,
+        email,
+        passwordHash: await hashPassword(tempPassword),
+        firstName: recruit.firstName,
+        lastName: recruit.lastName,
+        phone: recruit.phone,
+        role: data.role ?? "AGENT",
+      },
+    });
+
+    await prisma.contact.update({
+      where: { id: recruit.id },
+      data: { status: "ACTIVE_AGENT", convertedUserId: user.id, isAged: false },
+    });
+
+    await prisma.enrollment.updateMany({
+      where: { contactId: recruit.id, status: "ACTIVE" },
+      data: { status: "STOPPED", nextRunAt: null },
+    });
+
+    await logActivity({
+      agencyId,
+      userId: req.auth!.userId,
+      contactId: recruit.id,
+      type: "RECRUIT_CONVERTED",
+      description: `Converted ${recruit.firstName} ${recruit.lastName} into an active agent`,
+    });
+
+    res.status(201).json({
+      user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role },
+      tempPassword: data.password ? undefined : tempPassword,
+    });
   })
 );
 

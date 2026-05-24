@@ -1,5 +1,5 @@
 export type Role = "OWNER" | "MANAGER" | "AGENT";
-export type ContactType = "RECRUIT" | "CLIENT";
+export type ContactType = "RECRUIT" | "CLIENT" | "REFERRAL";
 
 export interface User {
   id: string;
@@ -55,6 +55,9 @@ export interface Contact {
   source: string | null;
   recruitNotes: string | null;
   lastContactedAt: string | null;
+  followUpDate: string | null;
+  nextTouchpointAt: string | null;
+  convertedUserId: string | null;
   isAged: boolean;
   doNotContact: boolean;
   tags: string[];
@@ -149,15 +152,18 @@ export interface Task {
   assignee?: { id: string; firstName: string; lastName: string } | null;
 }
 
+export type ActionType = "SMS" | "EMAIL" | "TASK" | "NOTE" | "STATUS" | "TAG" | "NOTIFY";
+
 export interface SequenceStep {
   id?: string;
   order: number;
-  channel: "SMS" | "EMAIL" | "TASK";
+  channel: ActionType;
   delayDays: number;
   delayHours: number;
   subject: string | null;
   body: string;
   taskTitle: string | null;
+  actionConfig?: Record<string, unknown> | null;
 }
 
 export interface Sequence {
@@ -227,17 +233,61 @@ export interface DashboardStats {
 }
 
 export interface Meta {
+  leadTypes: string[];
+  leadSegments: string[];
   recruitStages: string[];
   clientStages: string[];
+  referralStages: string[];
   productTypes: string[];
   policyStatuses: string[];
   referralStatuses: string[];
   crossSellStatuses: string[];
   sequenceTriggers: string[];
   channels: string[];
+  actionTypes: string[];
+  agingTiers: { key: string; label: string; maxDays: number }[];
   templateTokens: string[];
   premiumModes: string[];
   roles: string[];
+}
+
+export interface Lead extends Contact {
+  agingTier: string;
+  daysSinceContact: number;
+  hasActivePolicy: boolean;
+  hasOpenCrossSell: boolean;
+}
+
+export interface AppNotification {
+  id: string;
+  category: string;
+  type: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  read: boolean;
+  contactId: string | null;
+  createdAt: string;
+}
+
+export interface ReminderBucket<T = Record<string, unknown>> {
+  count: number;
+  items: T[];
+}
+
+export interface NotificationCenter {
+  unreadCount: number;
+  notifications: AppNotification[];
+  reminders: {
+    upcomingBirthdays: ReminderBucket;
+    upcomingAnniversaries: ReminderBucket;
+    policyRenewals: ReminderBucket;
+    inactiveRecruits: ReminderBucket;
+    overdueFollowUps: ReminderBucket;
+    overdueTasks: ReminderBucket;
+    referralOpportunities: ReminderBucket;
+    crossSellOpportunities: ReminderBucket;
+  };
 }
 
 export interface Paginated<T> {

@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { asyncHandler } from "../lib/asyncHandler";
 import { notFound } from "../lib/errors";
 import { requireAuth, requireRole } from "../middleware/auth";
-import { SEQUENCE_TRIGGERS, CHANNELS } from "../shared/pipeline";
+import { SEQUENCE_TRIGGERS, ACTION_TYPES } from "../shared/pipeline";
 import { runAutomationCycle } from "../services/automation";
 
 const router = Router();
@@ -12,12 +13,13 @@ router.use(requireAuth);
 
 const stepSchema = z.object({
   order: z.number().int().min(0),
-  channel: z.enum(CHANNELS),
+  channel: z.enum(ACTION_TYPES),
   delayDays: z.number().int().min(0).max(3650).optional().default(0),
   delayHours: z.number().int().min(0).max(23).optional().default(0),
   subject: z.string().max(200).optional().nullable(),
-  body: z.string().min(1).max(4000),
+  body: z.string().max(4000).optional().default(""),
   taskTitle: z.string().max(200).optional().nullable(),
+  actionConfig: z.record(z.any()).optional().nullable(),
 });
 
 const createSchema = z.object({
@@ -31,6 +33,19 @@ const createSchema = z.object({
 });
 
 const updateSchema = createSchema.partial();
+
+function toStepInput(s: z.infer<typeof stepSchema>) {
+  return {
+    order: s.order,
+    channel: s.channel,
+    delayDays: s.delayDays,
+    delayHours: s.delayHours,
+    subject: s.subject ?? null,
+    body: s.body ?? "",
+    taskTitle: s.taskTitle ?? null,
+    actionConfig: (s.actionConfig ?? undefined) as Prisma.InputJsonValue | undefined,
+  };
+}
 
 router.get(
   "/",
@@ -82,7 +97,7 @@ router.post(
         triggerType: data.triggerType,
         triggerConfig: data.triggerConfig ?? undefined,
         isActive: data.isActive ?? true,
-        steps: { create: data.steps },
+        steps: { create: data.steps.map(toStepInput) },
       },
       include: { steps: { orderBy: { order: "asc" } } },
     });
@@ -114,7 +129,7 @@ router.patch(
       if (data.steps) {
         await tx.sequenceStep.deleteMany({ where: { sequenceId: existing.id } });
         await tx.sequenceStep.createMany({
-          data: data.steps.map((s) => ({ ...s, sequenceId: existing.id })),
+          data: data.steps.map((s) => ({ ...toStepInput(s), sequenceId: existing.id })),
         });
       }
       return updated;

@@ -41,11 +41,12 @@ model Agency {
   referrals   Referral[]
   crossSells  CrossSell[]
   lifeEvents  LifeEvent[]
-  tasks       Task[]
-  sequences   Sequence[]
-  enrollments Enrollment[]
-  messages    Message[]
-  activities  Activity[]
+  tasks         Task[]
+  sequences     Sequence[]
+  enrollments   Enrollment[]
+  messages      Message[]
+  activities    Activity[]
+  notifications Notification[]
 }
 
 enum Role {
@@ -107,6 +108,7 @@ model User {
 enum ContactType {
   RECRUIT
   CLIENT
+  REFERRAL
 }
 
 model Contact {
@@ -146,10 +148,15 @@ model Contact {
   recruitNotes  String?
   resumeUrl     String?
 
-  // Engagement / aged-lead tracking
-  lastContactedAt DateTime?
-  isAged          Boolean   @default(false)
-  doNotContact    Boolean   @default(false)
+  // Engagement / aged-lead tracking & relationship cadence
+  lastContactedAt   DateTime?
+  followUpDate      DateTime? // next scheduled follow-up (importable)
+  nextTouchpointAt  DateTime? // engine-managed next relationship touchpoint
+  isAged            Boolean   @default(false)
+  doNotContact      Boolean   @default(false)
+
+  // Recruit -> agent conversion link (no duplicate record)
+  convertedUserId String?
 
   tags  String[] @default([])
   notes String?
@@ -339,13 +346,14 @@ model SequenceStep {
   sequence   Sequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
 
   order     Int
-  channel   String // SMS, EMAIL, TASK
+  channel   String // action type: SMS, EMAIL, TASK, NOTE, STATUS, TAG, NOTIFY
   delayDays Int    @default(0) // delay relative to enrollment (or previous step) before this step fires
   delayHours Int   @default(0)
 
-  subject   String? // email subject (templated)
-  body      String // message body / task description (templated with {{variables}})
-  taskTitle String? // for TASK channel
+  subject      String? // email subject (templated)
+  body         String  @default("") // message/note body or task description (templated with {{variables}})
+  taskTitle    String? // for TASK channel
+  actionConfig Json? // for STATUS ({status}), TAG ({tags:[]}), NOTIFY ({}) actions
 
   @@index([sequenceId])
 }
@@ -428,4 +436,28 @@ model Activity {
 
   @@index([agencyId])
   @@index([contactId])
+}
+
+// ============================================================
+// Notifications (reminder/notification center + "notify user" action)
+// ============================================================
+
+model Notification {
+  id        String  @id @default(cuid())
+  agencyId  String
+  agency    Agency  @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  userId    String? // target user; null = visible to the whole agency
+  contactId String?
+
+  category String // REMINDER, AUTOMATION, ASSIGNMENT, SYSTEM
+  type     String // BIRTHDAY, RENEWAL, AGED_LEAD, OVERDUE_TASK, REFERRAL, CROSS_SELL, WORKFLOW, etc.
+  title    String
+  body     String?
+  link     String?
+  read     Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([agencyId, read])
+  @@index([userId])
 }

@@ -64,7 +64,7 @@ export default function ContactForm({ open, onClose, type, contact, onSaved }: P
   }, [open, contact]);
 
   const set = (k: string, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
-  const stages = type === "RECRUIT" ? meta?.recruitStages : meta?.clientStages;
+  const stages = type === "RECRUIT" ? meta?.recruitStages : type === "REFERRAL" ? meta?.referralStages : meta?.clientStages;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,7 +86,7 @@ export default function ContactForm({ open, onClose, type, contact, onSaved }: P
       notes: form.notes,
       doNotContact: form.doNotContact,
     };
-    if (type === "CLIENT") {
+    if (type === "CLIENT" || type === "REFERRAL") {
       Object.assign(payload, {
         dateOfBirth: form.dateOfBirth,
         anniversary: form.anniversary,
@@ -108,7 +108,7 @@ export default function ContactForm({ open, onClose, type, contact, onSaved }: P
       const saved = contact
         ? await api.patch<Contact>(`/api/contacts/${contact.id}`, payload)
         : await api.post<Contact>("/api/contacts", payload);
-      toast(contact ? "Contact updated" : `${type === "RECRUIT" ? "Recruit" : "Client"} added`);
+      toast(contact ? "Contact updated" : `${type[0] + type.slice(1).toLowerCase()} added`);
       onSaved(saved);
       onClose();
     } catch (err) {
@@ -119,7 +119,7 @@ export default function ContactForm({ open, onClose, type, contact, onSaved }: P
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={contact ? "Edit contact" : type === "RECRUIT" ? "Add recruit" : "Add client"} wide>
+    <Modal open={open} onClose={onClose} title={contact ? "Edit contact" : `Add ${type.toLowerCase()}`} wide>
       <form onSubmit={submit} className="space-y-5">
         <div className="grid grid-cols-2 gap-4">
           <Field label="First name">
@@ -152,7 +152,7 @@ export default function ContactForm({ open, onClose, type, contact, onSaved }: P
           </Field>
         </div>
 
-        {type === "CLIENT" ? (
+        {type === "CLIENT" || type === "REFERRAL" ? (
           <>
             <div className="border-t border-slate-100 pt-4">
               <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Life details (drive automation & cross-sell)</p>
