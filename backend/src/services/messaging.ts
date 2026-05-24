@@ -118,6 +118,19 @@ function escapeHtml(s: string): string {
  * - When no provider is configured, the message is parked as QUEUED (ready to send
  *   the instant credentials are added) — never silently faked.
  */
+/** Send a one-off transactional email (e.g. team invitations) using the agency's email provider. */
+export async function sendTransactionalEmail(
+  agencyId: string,
+  to: string,
+  subject: string,
+  body: string
+): Promise<SendResult> {
+  const agency = await prisma.agency.findUnique({ where: { id: agencyId } });
+  if (!agency) return { ok: false, error: "Agency not found" };
+  const cfg = resolveProviderConfig(agency);
+  return sendEmail(cfg.resend, to, subject, body);
+}
+
 export async function dispatchMessage(messageId: string): Promise<SendResult> {
   const message = await prisma.message.findUnique({ where: { id: messageId } });
   if (!message) return { ok: false, error: "Message not found" };

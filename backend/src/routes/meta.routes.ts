@@ -27,7 +27,7 @@ router.get("/", requireAuth, (_req, res) => {
     channels: CHANNELS,
     templateTokens: AVAILABLE_TOKENS,
     premiumModes: ["MONTHLY", "QUARTERLY", "ANNUAL"],
-    roles: ["OWNER", "MANAGER", "AGENT"],
+    roles: ["OWNER", "MANAGER", "AGENT", "RECRUITER", "ASSISTANT", "SUPPORT", "TRAINER"],
   });
 });
 

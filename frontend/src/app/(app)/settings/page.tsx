@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
+import { useMeta } from "@/lib/meta";
 import { Button, Card, Badge, Field, Input, Select, Spinner, PageHeader, Modal } from "@/components/ui";
 import { fmtRelative, humanize } from "@/lib/format";
 import type { Agency, User } from "@/lib/types";
-import { Building2, Users, MessageSquare, CheckCircle2, XCircle, Plus, KeyRound } from "lucide-react";
+import { Building2, Users, MessageSquare, CheckCircle2, XCircle, Plus, KeyRound, Mail, Send, Copy, Trash2, Clock } from "lucide-react";
 
 const TABS = ["Agency", "Team", "Providers"] as const;
 type Tab = (typeof TABS)[number];
@@ -83,24 +84,61 @@ function AgencyTab({ canManage }: { canManage: boolean }) {
   );
 }
 
+interface Invite { id: string; email: string; role: string; status: string; expiresAt: string; inviteLink: string; }
+
 function TeamTab({ canManage, isOwner }: { canManage: boolean; isOwner: boolean }) {
   const { user } = useAuth();
   const toast = useToast();
+  const meta = useMeta();
+  const roleOptions = (meta?.roles ?? ["OWNER", "MANAGER", "AGENT", "RECRUITER", "ASSISTANT", "SUPPORT", "TRAINER"]).filter((r) => isOwner || r !== "OWNER");
   const [agents, setAgents] = useState<User[]>([]);
+  const [invites, setInvites] = useState<Invite[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
 
-  const load = () => api.get<User[]>("/api/agents").then((a) => { setAgents(a); setLoading(false); });
+  const load = async () => {
+    const [a, inv] = await Promise.all([
+      api.get<User[]>("/api/agents"),
+      canManage ? api.get<Invite[]>("/api/agents/invites").catch(() => []) : Promise.resolve([] as Invite[]),
+    ]);
+    setAgents(a); setInvites(inv); setLoading(false);
+  };
   useEffect(() => { load(); }, []);
 
   const setRole = async (id: string, role: string) => { try { await api.patch(`/api/agents/${id}`, { role }); load(); } catch (e) { toast(e instanceof ApiError ? e.message : "Failed", "error"); } };
   const setActive = async (id: string, isActive: boolean) => { try { await api.patch(`/api/agents/${id}`, { isActive }); load(); } catch (e) { toast(e instanceof ApiError ? e.message : "Failed", "error"); } };
+  const copyLink = (link: string) => { navigator.clipboard?.writeText(link); toast("Invite link copied"); };
+  const resend = async (id: string) => { const r = await api.post<{ emailSent: boolean }>(`/api/agents/invites/${id}/resend`); toast(r.emailSent ? "Invite re-sent by email" : "Email not configured — copy the link instead", r.emailSent ? "success" : "error"); };
+  const revoke = async (id: string) => { await api.post(`/api/agents/invites/${id}/revoke`); toast("Invitation revoked"); load(); };
 
   if (loading) return <Spinner />;
 
   return (
     <div>
-      {canManage && <div className="mb-4 flex justify-end"><Button onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> Add team member</Button></div>}
+      {canManage && <div className="mb-4 flex justify-end"><Button onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> Invite team member</Button></div>}
+
+      {canManage && invites.length > 0 && (
+        <Card className="mb-4 p-5">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700"><Clock className="h-4 w-4" /> Pending invitations</h3>
+          <div className="space-y-2">
+            {invites.map((i) => (
+              <div key={i.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-slate-400" />
+                  <span className="font-medium text-slate-700">{i.email}</span>
+                  <Badge>{i.role}</Badge>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" onClick={() => copyLink(i.inviteLink)}><Copy className="h-3.5 w-3.5" /> Copy link</Button>
+                  <Button variant="ghost" onClick={() => resend(i.id)}><Send className="h-3.5 w-3.5" /> Resend</Button>
+                  <Button variant="ghost" onClick={() => revoke(i.id)}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
@@ -114,7 +152,7 @@ function TeamTab({ canManage, isOwner }: { canManage: boolean; isOwner: boolean 
                 <td className="px-4 py-3">
                   {canManage && a.id !== user?.id ? (
                     <Select value={a.role} onChange={(e) => setRole(a.id, e.target.value)} className="!w-auto !py-1 text-xs" disabled={!isOwner && a.role === "OWNER"}>
-                      {["AGENT", "MANAGER", ...(isOwner ? ["OWNER"] : [])].map((r) => <option key={r} value={r}>{r}</option>)}
+                      {roleOptions.map((r) => <option key={r} value={r}>{humanize(r)}</option>)}
                     </Select>
                   ) : <Badge>{a.role}</Badge>}
                 </td>
@@ -131,40 +169,61 @@ function TeamTab({ canManage, isOwner }: { canManage: boolean; isOwner: boolean 
           </tbody>
         </table>
       </Card>
-      <AddMemberModal open={open} onClose={() => setOpen(false)} onSaved={load} isOwner={isOwner} />
+      <InviteModal open={open} onClose={() => setOpen(false)} onSaved={load} isOwner={isOwner} />
     </div>
   );
 }
 
-function AddMemberModal({ open, onClose, onSaved, isOwner }: { open: boolean; onClose: () => void; onSaved: () => void; isOwner: boolean }) {
+function InviteModal({ open, onClose, onSaved, isOwner }: { open: boolean; onClose: () => void; onSaved: () => void; isOwner: boolean }) {
   const toast = useToast();
-  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", password: "", role: "AGENT" });
+  const meta = useMeta();
+  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", role: "AGENT" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => { if (open) { setForm({ firstName: "", lastName: "", email: "", phone: "", password: "", role: "AGENT" }); setError(""); } }, [open]);
+  const [result, setResult] = useState<{ inviteLink: string; emailSent: boolean } | null>(null);
+
+  useEffect(() => { if (open) { setForm({ firstName: "", lastName: "", email: "", role: "AGENT" }); setError(""); setResult(null); } }, [open]);
+
+  // Owners can invite anyone; managers can't invite owners.
+  const roleOptions = (meta?.roles ?? ["OWNER", "MANAGER", "AGENT", "RECRUITER", "ASSISTANT", "SUPPORT", "TRAINER"]).filter((r) => isOwner || r !== "OWNER");
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true); setError("");
-    try { await api.post("/api/agents", form); toast("Team member added"); onSaved(); onClose(); }
-    catch (err) { setError(err instanceof ApiError ? err.message : "Failed"); } finally { setBusy(false); }
+    try {
+      const res = await api.post<{ inviteLink: string; emailSent: boolean; emailError: string | null }>("/api/agents/invite", form);
+      setResult({ inviteLink: res.inviteLink, emailSent: res.emailSent });
+      toast(res.emailSent ? "Invitation emailed" : "Invitation created — share the link (email not configured)");
+      onSaved();
+    } catch (err) { setError(err instanceof ApiError ? err.message : "Failed"); } finally { setBusy(false); }
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Add team member">
-      <form onSubmit={submit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="First name"><Input value={form.firstName} onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))} required /></Field>
-          <Field label="Last name"><Input value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} required /></Field>
+    <Modal open={open} onClose={onClose} title="Invite team member">
+      {result ? (
+        <div className="space-y-4">
+          <div className={`rounded-lg px-4 py-3 text-sm ${result.emailSent ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+            {result.emailSent ? "✓ Invitation email sent." : "Invitation created. Email isn't configured yet — copy the signup link below and share it directly."}
+          </div>
+          <Field label="Signup link">
+            <div className="flex gap-2">
+              <Input readOnly value={result.inviteLink} onFocus={(e) => e.currentTarget.select()} />
+              <Button type="button" variant="secondary" onClick={() => { navigator.clipboard?.writeText(result.inviteLink); toast("Copied"); }}><Copy className="h-4 w-4" /></Button>
+            </div>
+          </Field>
+          <div className="flex justify-end"><Button onClick={onClose}>Done</Button></div>
         </div>
-        <Field label="Email"><Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required /></Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Phone"><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></Field>
-          <Field label="Role"><Select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>{["AGENT", "MANAGER", ...(isOwner ? ["OWNER"] : [])].map((r) => <option key={r} value={r}>{r}</option>)}</Select></Field>
-        </div>
-        <Field label="Temporary password" hint="At least 8 characters. They can change it after signing in."><Input type="text" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} required minLength={8} /></Field>
-        {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
-        <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" loading={busy}>Add</Button></div>
-      </form>
+      ) : (
+        <form onSubmit={submit} className="space-y-4">
+          <Field label="Email" hint="They'll receive an email invite + signup link to set their own password."><Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required autoFocus /></Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="First name (optional)"><Input value={form.firstName} onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))} /></Field>
+            <Field label="Last name (optional)"><Input value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} /></Field>
+          </div>
+          <Field label="Role"><Select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>{roleOptions.map((r) => <option key={r} value={r}>{humanize(r)}</option>)}</Select></Field>
+          {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" loading={busy}><Send className="h-4 w-4" /> Send invite</Button></div>
+        </form>
+      )}
     </Modal>
   );
 }

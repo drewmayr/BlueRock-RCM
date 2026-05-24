@@ -35,6 +35,7 @@ model Agency {
   updatedAt DateTime @updatedAt
 
   users       User[]
+  invitations Invitation[]
   contacts    Contact[]
   policies    Policy[]
   referrals   Referral[]
@@ -51,6 +52,29 @@ enum Role {
   OWNER
   MANAGER
   AGENT
+  RECRUITER
+  ASSISTANT
+  SUPPORT
+  TRAINER
+}
+
+model Invitation {
+  id          String    @id @default(cuid())
+  agencyId    String
+  agency      Agency    @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  email       String
+  firstName   String?
+  lastName    String?
+  role        Role      @default(AGENT)
+  token       String    @unique
+  status      String    @default("PENDING") // PENDING, ACCEPTED, REVOKED
+  invitedById String?
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([agencyId, status])
+  @@index([token])
 }
 
 model User {

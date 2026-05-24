@@ -29,6 +29,12 @@ export const env = {
     .map((s) => s.trim())
     .filter(Boolean),
 
+  // Public URL of the frontend, used to build invite/signup links.
+  frontendUrl: (
+    process.env.FRONTEND_URL ??
+    (process.env.CORS_ORIGINS ?? "http://localhost:3000").split(",")[0]
+  ).trim().replace(/\/$/, ""),
+
   twilio: {
     accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
     authToken: process.env.TWILIO_AUTH_TOKEN ?? "",

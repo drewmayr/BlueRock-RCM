@@ -19,6 +19,7 @@ import sequenceRoutes from "./routes/sequences.routes";
 import messageRoutes from "./routes/messages.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
 import metaRoutes from "./routes/meta.routes";
+import invitationRoutes from "./routes/invitations.routes";
 
 export function createApp() {
   const app = express();
@@ -64,6 +65,7 @@ export function createApp() {
   app.use("/api/messages", messageRoutes);
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/meta", metaRoutes);
+  app.use("/api/invitations", invitationRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
